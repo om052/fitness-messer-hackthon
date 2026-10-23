@@ -1,0 +1,56 @@
+# Expo
+.expo/
+dist/
+npm-debug.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+web-build/
+
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Build
+build/
+.turbo/
+
+# Generated Android artifacts and local backups
+*.apk
+supabase-backup-*/
+hs_err_pid*.log
+replay_pid*.log
+
+# Local Supabase state and credentials
+supabase/.temp/
+supabase/.branches/
+
+# Local AI tool session state
+.codenow/sessions/
+
+# Android development signing key
+android/app/debug.keystore
+
+# Backup files
+*.backup
+
+# Local AI coding tool configuration
+.blackbox/
+.codenow/

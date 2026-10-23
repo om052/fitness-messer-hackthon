@@ -1,0 +1,64 @@
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+
+buildscript {
+    ext {
+        buildToolsVersion = findProperty('android.buildToolsVersion') ?: '34.0.0'
+        minSdkVersion = Integer.parseInt(findProperty('android.minSdkVersion') ?: '23')
+        compileSdkVersion = Integer.parseInt(findProperty('android.compileSdkVersion') ?: '34')
+        targetSdkVersion = Integer.parseInt(findProperty('android.targetSdkVersion') ?: '34')
+        kotlinVersion = findProperty('android.kotlinVersion') ?: '1.8.10'
+
+        ndkVersion = "25.1.8937393"
+    }
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath('com.android.tools.build:gradle')
+        classpath('com.facebook.react:react-native-gradle-plugin')
+    }
+}
+
+apply plugin: "com.facebook.react.rootproject"
+
+/**
+ * The `expo-constants` Gradle task that embeds the Expo config (app.json) into
+ * the APK as an `app.config` asset declares no inputs, so Gradle considers it
+ * UP-TO-DATE forever and keeps shipping a stale config. A stale config means
+ * `Constants.expoConfig` is missing fields such as `scheme`, which makes
+ * expo-linking throw "Cannot make a deep link into a standalone app with no
+ * custom scheme defined" and crashes the app on startup.
+ *
+ * Declaring the config files as inputs makes the task re-run whenever the
+ * project config changes.
+ */
+gradle.projectsEvaluated {
+    def configFiles = [
+        file("$rootDir/../app.json"),
+        file("$rootDir/../app.config.js"),
+        file("$rootDir/../app.config.ts"),
+    ].findAll { it.exists() }
+
+    def constantsTask = project(':expo-constants').tasks.findByName('createExpoConfig')
+    if (constantsTask != null && !configFiles.isEmpty()) {
+        constantsTask.inputs.files(configFiles).withPropertyName('expoConfigFiles')
+    }
+}
+
+allprojects {
+    repositories {
+        maven {
+            // All of React Native (JS, Obj-C sources, Android binaries) is installed from npm
+            url(new File(['node', '--print', "require.resolve('react-native/package.json')"].execute(null, rootDir).text.trim(), '../android'))
+        }
+        maven {
+            // Android JSC is installed from npm
+            url(new File(['node', '--print', "require.resolve('jsc-android/package.json', { paths: [require.resolve('react-native/package.json')] })"].execute(null, rootDir).text.trim(), '../dist'))
+        }
+
+        google()
+        mavenCentral()
+        maven { url 'https://www.jitpack.io' }
+    }
+}
