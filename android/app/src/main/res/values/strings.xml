@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">fitness-messer</string>
+    <string name="title_activity_main">fitness-messer</string>
+    <string name="package_name">com.fitnessmesser.app</string>
+    <string name="custom_url_scheme">com.fitnessmesser.app</string>
+</resources>

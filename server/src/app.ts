@@ -23,7 +23,20 @@ export const env = envSchema.parse(process.env);
 export function createApp() {
   const app = express();
   app.use(helmet());
-  app.use(cors({ origin: [env.FRONTEND_ORIGIN, "http://127.0.0.1:5175", "http://localhost:5175"], credentials: true }));
+  
+app.use(
+  cors({
+    origin: [
+      env.FRONTEND_ORIGIN,
+      "http://127.0.0.1:5175",
+      "http://localhost:5175",
+      "https://localhost",
+      "capacitor://localhost",
+    ],
+    credentials: true,
+  }),
+);
+
   app.use(clerkMiddleware());
   app.use(express.json({ limit: "1mb" }));
   app.use("/api/v1", healthRouter);
