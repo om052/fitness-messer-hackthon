@@ -1,0 +1,732 @@
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAuth } from "@clerk/clerk-react";
+import type { AppState, AppStore } from "./StoreContext";
+import type {
+  FMTransaction,
+  WorkoutSession,
+  Kingdom,
+  PlayerProfile,
+  AppNotification,
+} from "../../types";
+import { getExercise } from "../../data/exercises";
+import { MOCK_KINGDOMS } from "../../data/mockKingdoms";
+import {
+  MOCK_ACTIVITY,
+  MOCK_ANNOUNCEMENTS,
+  MOCK_CHALLENGES,
+} from "../../data/mockSabha";
+import {
+  levelFromXp,
+  HIRE_WORKER_COST,
+  BUILDING_PROGRESS_PER_UNIT,
+} from "../../data/gameRules";
+import { fetchMe } from "../../services/authService";
+import { uid } from "../../utils/id";
+
+const STORAGE_KEY = "fitness-messer-v1";
+
+function demoProfile(user: {
+  id: string;
+  fullName: string;
+  email: string;
+  createdAt: string;
+}): PlayerProfile {
+  return {
+    userId: user.id,
+    fullName: user.fullName,
+    email: user.email,
+    avatarSeed: "w1",
+    joinedAt: user.createdAt,
+    xp: 820,
+    strength: 164,
+    coins: 420,
+    kingdomId: null,
+    role: null,
+    mode: "independent",
+    onboarded: false,
+    exerciseHistory: {
+      pushup: 120,
+      "goblet-squat": 40,
+      "brisk-walk": 1800,
+      plank: 240,
+    },
+    achievements: ["First Rep", "Road Walker"],
+    weeklyConsistency: [35, 42, 0, 28, 51, 22, 30],
+    contributions: [],
+  };
+}
+
+function seedTransactions(profile: PlayerProfile): FMTransaction[] {
+  const t = (
+    id: string,
+    days: number,
+    amount: number,
+    cat: FMTransaction["category"],
+    desc: string,
+    bal: number,
+  ): FMTransaction => ({
+    id,
+    userId: profile.userId,
+    amount,
+    type: amount >= 0 ? "earn" : "spend",
+    category: cat,
+    description: desc,
+    timestamp: new Date(Date.now() - days * 86400_000).toISOString(),
+    balanceAfter: bal,
+  });
+  return [
+    t(
+      "tx-seed",
+      6,
+      420,
+      "reward",
+      "Welcome to Fitness Messer - founding warrior grant",
+      420,
+    ),
+  ];
+}
+
+function freshNotifications(): AppNotification[] {
+  return [
+    {
+      id: uid("ntf"),
+      title: "Welcome, warrior",
+      body: "Your journey begins. Every rep builds your empire.",
+      timestamp: new Date().toISOString(),
+      read: false,
+      tone: "info",
+    },
+    {
+      id: uid("ntf"),
+      title: "Real authentication enabled",
+      body: "You are signed in with Clerk.",
+      timestamp: new Date().toISOString(),
+      read: false,
+      tone: "success",
+    },
+  ];
+}
+
+function loadState(): AppState {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return JSON.parse(raw) as AppState;
+  } catch {
+    /* corrupted storage - fall through to fresh state */
+  }
+  return {
+    sessionUserId: null,
+    users: {},
+    profile: null,
+    transactions: [],
+    workouts: [],
+    kingdoms: Object.fromEntries(MOCK_KINGDOMS.map((k) => [k.id, k])),
+    activities: MOCK_ACTIVITY,
+    announcements: MOCK_ANNOUNCEMENTS,
+    challenges: MOCK_CHALLENGES,
+    joinRequests: [],
+    notifications: freshNotifications(),
+    onboarding: {
+      locationStatus: "unset",
+      nearbyKingdomIds: [],
+      pathChosen: null,
+      chosenKingdomId: null,
+    },
+  };
+}
+
+export function useAppStore(): { store: AppStore; state: AppState } {
+  const [state, setState] = useState<AppState>(loadState);
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const { getToken, isSignedIn, userId } = useAuth();
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch {
+      /* storage full or unavailable - demo continues in memory */
+    }
+  }, [state]);
+
+  // Sync Clerk session to app state and ensure backend profile exists
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      if (!isSignedIn || !userId) {
+        if (active) {
+          setState((s) => ({ ...s, sessionUserId: null, profile: null }));
+        }
+        return;
+      }
+      try {
+        const token = await getToken();
+        const me = await fetchMe(token);
+        if (!active) return;
+        const profileFromServer = me?.profile;
+        setState((s) => {
+          const user = {
+            id: userId,
+            fullName: profileFromServer?.displayName || me?.userId || userId,
+            email: (me as any)?.email || "",
+            passwordHash: "",
+            createdAt: profileFromServer?.createdAt || new Date().toISOString(),
+          };
+          const existing = s.profile && s.profile.userId === userId ? s.profile : null;
+          const profile = existing || {
+            userId,
+            fullName: user.fullName,
+            email: user.email,
+            avatarSeed: "w1",
+            joinedAt: user.createdAt,
+            xp: 820,
+            strength: 164,
+            coins: 420,
+            kingdomId: null,
+            role: null,
+            mode: "independent",
+            onboarded: false,
+            exerciseHistory: {
+              pushup: 120,
+              "goblet-squat": 40,
+              "brisk-walk": 1800,
+              plank: 240,
+            },
+            achievements: ["First Rep", "Road Walker"],
+            weeklyConsistency: [35, 42, 0, 28, 51, 22, 30],
+            contributions: [],
+          };
+          return {
+            ...s,
+            sessionUserId: userId,
+            users: { ...s.users, [userId]: user },
+            profile,
+          };
+        });
+      } catch (e) {
+        if (active) {
+          setState((s) => ({ ...s, sessionUserId: userId }));
+        }
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [isSignedIn, userId, getToken]);
+
+  const notify = useCallback(
+    (title: string, body: string, tone: AppNotification["tone"] = "info") => {
+      setState((s) => ({
+        ...s,
+        notifications: [
+          {
+            id: uid("ntf"),
+            title,
+            body,
+            timestamp: new Date().toISOString(),
+            read: false,
+            tone,
+          },
+          ...s.notifications,
+        ].slice(0, 40),
+      }));
+    },
+    [],
+  );
+
+  const store = useMemo<AppStore>(() => {
+    const mutateProfile = (fn: (p: PlayerProfile) => PlayerProfile) =>
+      setState((s) => (s.profile ? { ...s, profile: fn(s.profile) } : s));
+
+    const addTransaction = (
+      profile: PlayerProfile,
+      amount: number,
+      category: FMTransaction["category"],
+      description: string,
+      linked?: Partial<FMTransaction>,
+    ): FMTransaction => {
+      const tx: FMTransaction = {
+        id: uid("tx"),
+        userId: profile.userId,
+        amount,
+        type: amount >= 0 ? "earn" : "spend",
+        category,
+        description,
+        timestamp: new Date().toISOString(),
+        balanceAfter: Math.max(0, profile.coins + amount),
+        ...linked,
+      };
+      return tx;
+    };
+
+    return {
+      state,
+
+      register: async (fullName, email, password) => {
+        // Clerk handles registration via /register route; return ok for compatibility
+        return { ok: true };
+      },
+
+      login: async (email, password) => {
+        // Clerk handles login via /login route; return ok for compatibility
+        return { ok: true, firstTime: false };
+      },
+
+      logout: () =>
+        setState((s) => ({
+          ...s,
+          sessionUserId: null,
+          profile: s.profile ? { ...s.profile } : null,
+        })),
+
+      updateProfile: (patch) => mutateProfile((p) => ({ ...p, ...patch })),
+
+      resetDemo: () => {
+        localStorage.removeItem(STORAGE_KEY);
+        setState(loadState());
+      },
+
+      setLocationStatus: (status, kingdomIds) =>
+        setState((s) => ({
+          ...s,
+          onboarding: {
+            ...s.onboarding,
+            locationStatus: status,
+            nearbyKingdomIds: kingdomIds ?? s.onboarding.nearbyKingdomIds,
+          },
+        })),
+
+      choosePath: (path) =>
+        setState((s) => ({
+          ...s,
+          onboarding: {
+            ...s.onboarding,
+            pathChosen: path,
+            chosenKingdomId:
+              path === "independent" ? null : s.onboarding.chosenKingdomId,
+          },
+        })),
+
+      joinKingdom: (kingdomId) =>
+        setState((s) => {
+          if (!s.profile) return s;
+          const k = s.kingdoms[kingdomId];
+          if (!k) return s;
+          const p = {
+            ...s.profile,
+            kingdomId,
+            role: "Member" as const,
+            mode: "kingdom" as const,
+          };
+          return {
+            ...s,
+            profile: p,
+            onboarding: {
+              ...s.onboarding,
+              chosenKingdomId: kingdomId,
+              pathChosen: "kingdom",
+            },
+            activities: [
+              {
+                id: uid("act"),
+                kingdomId,
+                actorName: p.fullName,
+                action: "joined the kingdom",
+                outcome: "Welcome, new warrior!",
+                timestamp: new Date().toISOString(),
+                category: "membership" as const,
+              },
+              ...s.activities,
+            ],
+          };
+        }),
+
+      leaveKingdom: () =>
+        setState((s) => {
+          if (!s.profile) return s;
+          const kingdomId = s.profile.kingdomId;
+          const p = {
+            ...s.profile,
+            kingdomId: null,
+            role: null,
+            mode: "independent" as const,
+          };
+          return {
+            ...s,
+            profile: p,
+            onboarding: {
+              ...s.onboarding,
+              chosenKingdomId: null,
+              pathChosen: "independent",
+            },
+            activities: kingdomId
+              ? [
+                  {
+                    id: uid("act"),
+                    kingdomId,
+                    actorName: p.fullName,
+                    action: "left the kingdom",
+                    outcome: "Returned to independent training",
+                    timestamp: new Date().toISOString(),
+                    category: "membership" as const,
+                  },
+                  ...s.activities,
+                ]
+              : s.activities,
+          };
+        }),
+
+      finishOnboarding: () => mutateProfile((p) => ({ ...p, onboarded: true })),
+
+      recordWorkout: (input) => {
+        const ex = getExercise(input.exerciseId);
+        const s0 = stateRef.current;
+        if (!s0.profile || input.quantity <= 0) return null;
+        const xp = Math.round(ex.xpPerUnit * input.quantity);
+        const strength = ex.strengthPerUnit * input.quantity;
+        const coins = Math.round(ex.coinsPerUnit * input.quantity);
+        const kingdomId = s0.profile.kingdomId;
+        const kingdom = kingdomId ? s0.kingdoms[kingdomId] : null;
+        const session: WorkoutSession = {
+          id: uid("wo"),
+          userId: s0.profile.userId,
+          exerciseId: ex.id,
+          quantity: input.quantity,
+          xp,
+          strength: Math.round(strength * 10) / 10,
+          coins,
+          kind: input.kind,
+          startedAt: new Date(
+            Date.now() - input.durationSec * 1000,
+          ).toISOString(),
+          endedAt: new Date().toISOString(),
+          durationSec: input.durationSec,
+        };
+
+        let tx: FMTransaction | null = null;
+        let contribution = null as
+          | PlayerProfile["contributions"][number]
+          | null;
+
+        setState((s) => {
+          if (!s.profile) return s;
+          const prevCoins = s.profile.coins;
+          const newCoins = Math.max(0, prevCoins + coins);
+          tx = addTransaction(
+            s.profile,
+            coins,
+            "workout",
+            ${ex.name}:   ( session),
+            { linkedWorkoutId: session.id },
+          );
+          const newProfile: PlayerProfile = {
+            ...s.profile,
+            xp: s.profile.xp + xp,
+            strength: Math.round((s.profile.strength + strength) * 10) / 10,
+            coins: newCoins,
+            exerciseHistory: {
+              ...s.profile.exerciseHistory,
+              [ex.id]: (s.profile.exerciseHistory[ex.id] ?? 0) + input.quantity,
+            },
+          };
+          let kingdoms = s.kingdoms;
+          let activities = s.activities;
+          if (kingdom && input.kind !== "unverified") {
+            const target = kingdom.buildings
+              .filter((b) => b.category === ex.buildingCategory)
+              .sort((a, b) => a.level - b.level)[0];
+            if (target) {
+              const gain = input.quantity * BUILDING_PROGRESS_PER_UNIT;
+              const buildings = kingdom.buildings.map((b) => {
+                if (b.id !== target.id) return b;
+                let progress = b.progress + gain;
+                let level = b.level;
+                let leveled = false;
+                while (progress >= b.progressRequired) {
+                  progress -= b.progressRequired;
+                  level += 1;
+                  leveled = true;
+                }
+                if (leveled) {
+                  activities = [
+                    {
+                      id: uid("act"),
+                      kingdomId: kingdom.id,
+                      actorName: newProfile.fullName,
+                      action: ${b.type} reached level ,
+                      outcome: Fed by  contributions,
+                      timestamp: new Date().toISOString(),
+                      category: "construction" as const,
+                    },
+                    ...activities,
+                  ];
+                }
+                return { ...b, progress, level };
+              });
+              kingdoms = {
+                ...s.kingdoms,
+                [kingdom.id]: {
+                  ...kingdom,
+                  buildings,
+                  strength: kingdom.strength + Math.round(strength),
+                },
+              };
+              contribution = {
+                id: uid("con"),
+                userId: newProfile.userId,
+                userName: newProfile.fullName,
+                kingdomId: kingdom.id,
+                buildingId: target.id,
+                buildingType: target.type,
+                exerciseId: ex.id,
+                amount: gain,
+                xp,
+                coins,
+                timestamp: new Date().toISOString(),
+              };
+              activities = [
+                {
+                  id: uid("act"),
+                  kingdomId: kingdom.id,
+                  actorName: newProfile.fullName,
+                  action: "contributed to construction",
+                  outcome: ${target.type} + progress (),
+                  timestamp: new Date().toISOString(),
+                  category: "construction" as const,
+                },
+                ...activities,
+              ];
+            }
+          }
+          return {
+            ...s,
+            profile: newProfile,
+            transactions: [tx!, ...s.transactions],
+            workouts: [session, ...s.workouts],
+            kingdoms,
+            activities,
+          };
+        });
+
+        if (contribution) {
+          setState((s) =>
+            s.profile
+              ? {
+                  ...s,
+                  profile: {
+                    ...s.profile,
+                    contributions: [
+                      contribution!,
+                      ...s.profile.contributions,
+                    ].slice(0, 50),
+                  },
+                }
+              : s,
+          );
+        }
+        return session;
+      },
+
+      upgradeBuilding: (kingdomId, buildingId) => {
+        const s = stateRef.current;
+        const k = s.kingdoms[kingdomId];
+        const b = k?.buildings.find((x) => x.id === buildingId);
+        if (!k || !b) return { ok: false, message: "Building not found." };
+        const isMember = s.profile?.kingdomId === kingdomId;
+        if (!isMember)
+          return {
+            ok: false,
+            message: "Only kingdom members can fund construction.",
+          };
+        const remaining = b.progressRequired - b.progress;
+        const cost = Math.ceil(remaining * 0.5);
+        if (cost > k.treasury)
+          return {
+            ok: false,
+            message: Treasury short: needs  FM, has .,
+          };
+        setState((s2) => {
+          const kingdoms = { ...s2.kingdoms };
+          const kk = { ...kingdoms[kingdomId] };
+          kk.treasury -= cost;
+          kk.buildings = kk.buildings.map((x) =>
+            x.id === buildingId ? { ...x, level: x.level + 1, progress: 0 } : x,
+          );
+          kingdoms[kingdomId] = kk;
+          return {
+            ...s2,
+            kingdoms,
+            activities: [
+              {
+                id: uid("act"),
+                kingdomId,
+                actorName: s2.profile?.fullName ?? "A warrior",
+                action: unded  upgrade to level ,
+                outcome: Treasury - FM,
+                timestamp: new Date().toISOString(),
+                category: "construction" as const,
+              },
+              ...s2.activities,
+            ],
+          };
+        });
+        return {
+          ok: true,
+          message: ${b.type} upgraded to level . Treasury - FM.,
+        };
+      },
+
+      hireWorker: (kingdomId) => {
+        const s = stateRef.current;
+        if (s.profile?.role !== "King" || s.profile.kingdomId !== kingdomId)
+          return { ok: false, message: "Only the King can hire workers." };
+        const k = s.kingdoms[kingdomId];
+        if (!k) return { ok: false, message: "Kingdom not found." };
+        if (k.treasury < HIRE_WORKER_COST)
+          return {
+            ok: false,
+            message: Needs  FM in treasury.,
+          };
+        setState((s2) => {
+          const kingdoms = { ...s2.kingdoms };
+          const kk = { ...kingdoms[kingdomId] };
+          kk.treasury -= HIRE_WORKER_COST;
+          kk.population += 1;
+          kingdoms[kingdomId] = kk;
+          return {
+            ...s2,
+            kingdoms,
+            activities: [
+              {
+                id: uid("act"),
+                kingdomId,
+                actorName: s2.profile?.fullName ?? "King",
+                action: "recruited a worker",
+                outcome: Treasury - FM · Population +1,
+                timestamp: new Date().toISOString(),
+                category: "governance" as const,
+              },
+              ...s2.activities,
+            ],
+          };
+        });
+        return {
+          ok: true,
+          message: Worker hired. Treasury - FM, population +1.,
+        };
+      },
+
+      submitJoinRequest: (kingdomId) =>
+        setState((s) => {
+          if (!s.profile || s.profile.kingdomId === kingdomId) return s;
+          if (
+            s.joinRequests.some(
+              (r) =>
+                r.userId === s.profile!.userId &&
+                r.kingdomId === kingdomId &&
+                r.status === "pending",
+            )
+          )
+            return s;
+          return {
+            ...s,
+            joinRequests: [
+              {
+                id: uid("jr"),
+                userId: s.profile.userId,
+                userName: s.profile.fullName,
+                kingdomId,
+                status: "pending",
+                timestamp: new Date().toISOString(),
+              },
+              ...s.joinRequests,
+            ],
+          };
+        }),
+
+      createAnnouncement: (kingdomId, title, body) =>
+        setState((s) => {
+          if (
+            !s.profile ||
+            s.profile.kingdomId !== kingdomId ||
+            !s.profile.role ||
+            s.profile.role === "Member"
+          )
+            return s;
+          return {
+            ...s,
+            announcements: [
+              {
+                id: uid("ann"),
+                kingdomId,
+                authorName: s.profile.fullName,
+                authorRole: s.profile.role,
+                title,
+                body,
+                timestamp: new Date().toISOString(),
+              },
+              ...s.announcements,
+            ],
+          };
+        }),
+
+      resolveChallenge: (challengeId, outcome) =>
+        setState((s) => ({
+          ...s,
+          challenges: s.challenges.map((c) =>
+            c.id === challengeId
+              ? { ...c, status: "resolved", result: outcome }
+              : c,
+          ),
+          activities: [
+            {
+              id: uid("act"),
+              kingdomId:
+                s.challenges.find((c) => c.id === challengeId)?.kingdomId ?? "",
+              actorName: "Sabha",
+              action: "leadership challenge resolved",
+              outcome,
+              timestamp: new Date().toISOString(),
+              category: "challenge" as const,
+            },
+            ...s.activities,
+          ],
+        })),
+
+      markNotificationsRead: () =>
+        setState((s) => ({
+          ...s,
+          notifications: s.notifications.map((n) => ({ ...n, read: true })),
+        })),
+
+      notify,
+    };
+  }, [state, notify, getToken, userId, isSignedIn]);
+
+  return { store, state };
+}
+
+export function leaderboardOf(
+  kingdoms: Record<string, Kingdom>,
+  profile: PlayerProfile | null,
+) {
+  const all = Object.values(kingdoms).flatMap((k) =>
+    k.members.map((m) => ({
+      name: m.name,
+      strength: m.strength,
+      kingdom: k.name,
+      role: m.role,
+    })),
+  );
+  if (profile) {
+    all.push({
+      name: ${profile.fullName} (you),
+      strength: profile.strength,
+      kingdom: profile.kingdomId
+        ? (kingdoms[profile.kingdomId]?.name ?? "—")
+        : "Independent",
+      role: profile.role ?? "Member",
+    });
+  }
+  return all.sort((a, b) => b.strength - a.strength);
+}

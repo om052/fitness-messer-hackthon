@@ -1,0 +1,39 @@
+{
+  "name": "fitness-messer",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b --noCheck && vite build",
+    "typecheck": "tsc --noEmit",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@clerk/clerk-react": "^5.61.11",
+    "@mediapipe/tasks-vision": "^1.2.0",
+    "@react-three/drei": "^9.114.0",
+    "@react-three/fiber": "^8.17.8",
+    "@supabase/supabase-js": "^2.118.0",
+    "@types/leaflet": "^1.9.8",
+    "clsx": "^2.1",
+    "leaflet": "^1.9.4",
+    "lucide-react": "^0.453.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-leaflet": "^4.2.1",
+    "react-router-dom": "^6.27.0",
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.1",
+    "@types/three": "^0.169.0",
+    "@vitejs/plugin-react": "^4.3.2",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.14",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.9"
+  }
+}

@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  background-color: #0a0c0b;
+  color: #e5e7eb;
+  font-family: Inter, system-ui, sans-serif;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #0a0c0b;
+}
+::-webkit-scrollbar-thumb {
+  background: #2a2f33;
+  border-radius: 4px;
+}
+
+@layer components {
+  .panel {
+    @apply rounded-xl border border-white/10 bg-panel/80 backdrop-blur;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-lime px-5 py-2.5 font-semibold text-obsidian transition hover:bg-lime-glow focus:outline-none focus:ring-2 focus:ring-lime/60 disabled:opacity-50;
+  }
+  .btn-royal {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-royal/60 bg-royal/10 px-5 py-2.5 font-semibold text-royalbright transition hover:bg-royal/20 focus:outline-none focus:ring-2 focus:ring-royal/50 disabled:opacity-50;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 px-5 py-2.5 font-medium text-gray-300 transition hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-white/30 disabled:opacity-50;
+  }
+  .input-field {
+    @apply w-full rounded-lg border border-white/10 bg-graphite px-4 py-2.5 text-gray-100 placeholder-gray-500 focus:border-lime/60 focus:outline-none focus:ring-1 focus:ring-lime/40;
+  }
+  .gold-text {
+    @apply bg-gradient-to-r from-royal to-royalbright bg-clip-text font-display text-transparent;
+  }
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-fade-up {
+  animation: fadeUp 0.35s ease both;
+}

@@ -1,0 +1,24 @@
+﻿export function leaderboardOf(
+  kingdoms: Record<string, Kingdom>,
+  profile: PlayerProfile | null,
+) {
+  const all = Object.values(kingdoms).flatMap((k) =>
+    k.members.map((m) => ({
+      name: m.name,
+      strength: m.strength,
+      kingdom: k.name,
+      role: m.role,
+    })),
+  );
+  if (profile) {
+    all.push({
+      name: (profile.fullName || '') + ' (you)',
+      strength: profile.strength,
+      kingdom: profile.kingdomId
+        ? (kingdoms[profile.kingdomId]?.name ?? '-')
+        : 'Independent',
+      role: profile.role ?? 'Member',
+    });
+  }
+  return all.sort((a, b) => b.strength - a.strength);
+}
